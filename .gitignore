@@ -1,0 +1,6 @@
+# Built binaries (the forth/ directory is the package, so builds go in bin/)
+/bin/
+
+# Test output
+*.test
+*.out
