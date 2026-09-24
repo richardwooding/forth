@@ -180,7 +180,7 @@ func (vm *VM) installDouble() {
 	vm.prim("2CONSTANT", func(vm *VM) {
 		name := vm.nextName("2CONSTANT")
 		lo, hi := vm.popD()
-		vm.define(&Word{Name: name, prim: func(vm *VM) { vm.pushD(lo, hi) }})
+		vm.define(&Word{Name: name, kind: kindConstant, vals: []Cell{Cell(lo), Cell(hi)}})
 	})
 	vm.prim("2VARIABLE", func(vm *VM) {
 		name := vm.nextName("2VARIABLE")
@@ -188,7 +188,7 @@ func (vm *VM) installDouble() {
 		addr := vm.allot(2 * CellSize)
 		vm.setCell(addr, 0)
 		vm.setCell(addr+CellSize, 0)
-		vm.lastDef = vm.define(&Word{Name: name, data: addr, hasData: true})
+		vm.lastDef = vm.define(&Word{Name: name, kind: kindData, data: addr})
 	})
 	vm.imm("2LITERAL", func(vm *VM) {
 		vm.compileOnly("2LITERAL")

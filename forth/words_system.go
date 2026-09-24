@@ -303,6 +303,34 @@ func (vm *VM) installSystem() {
 		defer vm.popInput()
 		vm.interpret()
 	})
+	vm.prim("SAVE-IMAGE", func(vm *VM) {
+		name := vm.popName()
+		if vm.fs == nil {
+			vm.throw("SAVE-IMAGE: %v", errNoFileSystem)
+		}
+		f, err := vm.fs.Open(name, ModeWrite|ModeCreate|ModeTruncate)
+		if err != nil {
+			vm.throw("SAVE-IMAGE: %v", err)
+		}
+		defer f.Close()
+		if err := vm.SaveImage(f); err != nil {
+			vm.throw("SAVE-IMAGE: %v", err)
+		}
+	})
+	vm.prim("LOAD-IMAGE", func(vm *VM) {
+		name := vm.popName()
+		if vm.fs == nil {
+			vm.throw("LOAD-IMAGE: %v", errNoFileSystem)
+		}
+		f, err := vm.fs.Open(name, ModeRead)
+		if err != nil {
+			vm.throw("LOAD-IMAGE: %v", err)
+		}
+		defer f.Close()
+		if err := vm.LoadImage(f); err != nil {
+			vm.throw("LOAD-IMAGE: %v", err)
+		}
+	})
 	vm.prim("FILE-ERROR", func(vm *VM) {
 		addr, n := vm.transient(vm.lastIOErr)
 		vm.push(addr)

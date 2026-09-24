@@ -33,19 +33,32 @@ func (e *Error) Error() string { return e.Msg }
 // ErrBye is returned by Eval when the program executed BYE.
 var ErrBye = &Error{Msg: "bye"}
 
+// wordKind says how a word behaves when it is executed. Everything except a
+// primitive is described by data alone, so that a dictionary can be written to
+// an image file.
+type wordKind uint8
+
+const (
+	kindColon    wordKind = iota // run the compiled code; the zero value, for :
+	kindPrim                     // a Go function
+	kindData                     // push the data field address, then run does
+	kindConstant                 // push the saved values
+	kindValue                    // push the cell at the data field address
+)
+
 // A Word is a dictionary entry.
 type Word struct {
 	Name      string // display name, as it was defined
 	Immediate bool   // executed even while compiling
 
-	prim    func(*VM) // primitive behaviour, nil for colon definitions
-	code    []instr   // body of a colon definition
-	does    []instr   // run-time behaviour attached by DOES>
-	data    Cell      // data field address (VARIABLE, CREATE, VALUE, ...)
-	hasData bool      // word pushes its data field address
-	isValue bool      // defined by VALUE, so TO can assign to it
-	hidden  bool      // not yet findable (being compiled)
-	xt      Cell      // execution token, index into VM.xts plus one
+	kind   wordKind
+	prim   func(*VM) // kindPrim
+	code   []instr   // kindColon
+	does   []instr   // kindData, when DOES> gave it a run-time behaviour
+	data   Cell      // kindData and kindValue: data field address
+	vals   []Cell    // kindConstant: the values to push
+	hidden bool      // not yet findable (being compiled)
+	xt     Cell      // execution token, index into VM.xts plus one
 }
 
 type loopFrame struct{ index, limit Cell }
@@ -81,18 +94,19 @@ type VM struct {
 
 	inputs []input // input source stack, last entry is current
 
-	current *Word       // definition being compiled by :
-	cstack  []ctrlEntry // compile time control-flow stack
-	strBuf  Cell        // rotating buffer for transient strings
-	strOff  Cell        // next slot of strBuf to use
-	pad     Cell        // address of PAD
-	holdBuf Cell        // pictured numeric output buffer
-	holdPtr Cell        // first character held in holdBuf
-	baseVar Cell        // address of BASE
-	stateV  Cell        // address of STATE
-	lastDef *Word       // most recent CREATEd word, for DOES>
-	depth   int         // inner interpreter nesting
-	source  func(string) (string, error)
+	current  *Word       // definition being compiled by :
+	cstack   []ctrlEntry // compile time control-flow stack
+	strBuf   Cell        // rotating buffer for transient strings
+	strOff   Cell        // next slot of strBuf to use
+	pad      Cell        // address of PAD
+	holdBuf  Cell        // pictured numeric output buffer
+	holdPtr  Cell        // first character held in holdBuf
+	baseVar  Cell        // address of BASE
+	stateV   Cell        // address of STATE
+	lastDef  *Word       // most recent CREATEd word, for DOES>
+	depth    int         // inner interpreter nesting
+	baseline int         // number of words the standard dictionary has
+	source   func(string) (string, error)
 
 	fs        FileSystem    // host file system, nil if file access is denied
 	files     map[Cell]File // open files, by file identifier
@@ -127,6 +141,7 @@ func New(in io.Reader, out io.Writer) *VM {
 	if err := vm.Eval(prelude); err != nil {
 		panic("forth: broken prelude: " + err.Error())
 	}
+	vm.baseline = len(vm.order)
 	return vm
 }
 
@@ -366,9 +381,9 @@ func (vm *VM) wordFromXT(xt Cell) *Word {
 }
 
 func (vm *VM) prim(name string, fn func(*VM)) *Word {
-	return vm.define(&Word{Name: name, prim: fn})
+	return vm.define(&Word{Name: name, kind: kindPrim, prim: fn})
 }
 
 func (vm *VM) imm(name string, fn func(*VM)) *Word {
-	return vm.define(&Word{Name: name, prim: fn, Immediate: true})
+	return vm.define(&Word{Name: name, kind: kindPrim, prim: fn, Immediate: true})
 }

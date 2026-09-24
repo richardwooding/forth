@@ -36,8 +36,11 @@ func run(out *bufio.Writer) error {
 	var evals evalFlag
 	flag.Var(&evals, "e", "evaluate `text` before any files (repeatable)")
 	interactive := flag.Bool("i", false, "enter the REPL after running files")
+	load := flag.String("load", "", "load the image `file` before running anything")
+	save := flag.String("save", "", "write an image to `file` when the program is done")
 	flag.Usage = func() {
-		fmt.Fprint(flag.CommandLine.Output(), "usage: forth [-e text] [-i] [file.fs ...]\n")
+		fmt.Fprint(flag.CommandLine.Output(),
+			"usage: forth [flags] [file.fs ...]\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -45,6 +48,18 @@ func run(out *bufio.Writer) error {
 	vm := forth.New(os.Stdin, out)
 	vm.SetSourceLoader(loadFile)
 	vm.SetFileSystem(forth.OSFileSystem{})
+
+	if *load != "" {
+		f, err := os.Open(*load)
+		if err != nil {
+			return err
+		}
+		err = vm.LoadImage(f)
+		f.Close()
+		if err != nil {
+			return fmt.Errorf("%s: %w", *load, err)
+		}
+	}
 
 	for _, text := range evals {
 		if err := vm.EvalNamed(text, "-e"); err != nil {
@@ -61,9 +76,26 @@ func run(out *bufio.Writer) error {
 		}
 	}
 	if *interactive || (len(evals) == 0 && flag.NArg() == 0) {
-		return repl(vm, out)
+		if err := repl(vm, out); err != nil {
+			return err
+		}
+	}
+	if *save != "" {
+		return saveImage(vm, *save)
 	}
 	return nil
+}
+
+func saveImage(vm *forth.VM, name string) error {
+	f, err := os.Create(name)
+	if err != nil {
+		return err
+	}
+	if err := vm.SaveImage(f); err != nil {
+		f.Close()
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	return f.Close()
 }
 
 func loadFile(name string) (string, error) {

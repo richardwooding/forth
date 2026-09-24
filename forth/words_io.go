@@ -133,17 +133,21 @@ func (vm *VM) installIO() {
 	})
 
 	vm.prim("ABORT", func(vm *VM) { vm.throw("aborted") })
+	// (ABORT") is the run-time half of ABORT": the message follows it as a
+	// compiled string, so that a definition can be written to an image.
+	abortMsg := vm.prim(`(ABORT")`, func(vm *VM) {
+		n := vm.pop()
+		addr := vm.pop()
+		if vm.pop() != 0 {
+			vm.throw("%s", vm.readString(addr, n))
+		}
+	})
 	vm.imm(`ABORT"`, func(vm *VM) {
 		msg := vm.parseDelimited(`ABORT"`, '"')
 		if vm.Compiling() {
-			vm.compile(instr{op: opCall, word: &Word{
-				Name: `(abort")`,
-				prim: func(vm *VM) {
-					if vm.pop() != 0 {
-						vm.throw("%s", msg)
-					}
-				},
-			}})
+			addr, n := vm.storeString(msg)
+			vm.compile(instr{op: opString, val: addr, len: n})
+			vm.compile(instr{op: opCall, word: abortMsg})
 		} else if vm.pop() != 0 {
 			vm.throw("%s", msg)
 		}

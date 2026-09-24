@@ -49,11 +49,9 @@ func (vm *VM) installCompile() {
 			vm.compile(instr{op: opCall, word: w})
 			return
 		}
-		// Compile code that compiles a call to w when it is later executed.
-		vm.compile(instr{op: opCall, word: &Word{
-			Name: "(postpone " + w.Name + ")",
-			prim: func(vm *VM) { vm.compile(instr{op: opCall, word: w}) },
-		}})
+		// Compile an instruction that compiles a call to w when it is later
+		// executed.
+		vm.compile(instr{op: opCompile, word: w})
 	})
 
 	tick := func(vm *VM, who string) {
@@ -73,17 +71,16 @@ func (vm *VM) installCompile() {
 		vm.alignHere()
 		addr := vm.allot(CellSize)
 		vm.setCell(addr, 0)
-		vm.lastDef = vm.define(&Word{Name: name, data: addr, hasData: true})
+		vm.lastDef = vm.define(&Word{Name: name, kind: kindData, data: addr})
 	})
 	vm.prim("CONSTANT", func(vm *VM) {
 		name := vm.nextName("CONSTANT")
-		v := vm.pop()
-		vm.define(&Word{Name: name, prim: func(vm *VM) { vm.push(v) }})
+		vm.define(&Word{Name: name, kind: kindConstant, vals: []Cell{vm.pop()}})
 	})
 	vm.prim("CREATE", func(vm *VM) {
 		name := vm.nextName("CREATE")
 		vm.alignHere()
-		vm.lastDef = vm.define(&Word{Name: name, data: vm.here, hasData: true})
+		vm.lastDef = vm.define(&Word{Name: name, kind: kindData, data: vm.here})
 	})
 	vm.imm("DOES>", func(vm *VM) {
 		vm.compileOnly("DOES>")
@@ -95,30 +92,26 @@ func (vm *VM) installCompile() {
 		vm.alignHere()
 		addr := vm.allot(CellSize)
 		vm.setCell(addr, vm.pop())
-		vm.define(&Word{
-			Name: name, data: addr, isValue: true,
-			prim: func(vm *VM) { vm.push(vm.cell(addr)) },
-		})
+		vm.define(&Word{Name: name, kind: kindValue, data: addr})
 	})
+	store := vm.mustFind("!")
 	vm.imm("TO", func(vm *VM) {
 		name := vm.nextName("TO")
 		w := vm.mustFind(name)
-		if !w.isValue {
+		if w.kind != kindValue {
 			vm.throw("TO: %s is not a VALUE", strings.ToUpper(name))
 		}
-		addr := w.data
 		if vm.Compiling() {
-			vm.compile(instr{op: opCall, word: &Word{
-				Name: "(to " + w.Name + ")",
-				prim: func(vm *VM) { vm.setCell(addr, vm.pop()) },
-			}})
+			// The same as compiling "<addr> !".
+			vm.compile(instr{op: opLit, val: w.data})
+			vm.compile(instr{op: opCall, word: store})
 		} else {
-			vm.setCell(addr, vm.pop())
+			vm.setCell(w.data, vm.pop())
 		}
 	})
 	vm.prim(">BODY", func(vm *VM) {
 		w := vm.wordFromXT(vm.pop())
-		if !w.hasData && !w.isValue {
+		if w.kind != kindData && w.kind != kindValue {
 			vm.throw(">BODY: %s has no data field", w.Name)
 		}
 		vm.push(w.data)

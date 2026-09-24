@@ -8,6 +8,7 @@ type opcode uint8
 
 const (
 	opCall     opcode = iota // call word
+	opCompile                // compile a call to word (POSTPONE)
 	opLit                    // push val
 	opString                 // push addr len of a compiled string
 	opBranch                 // ip = dest
@@ -43,14 +44,20 @@ func (vm *VM) exec(w *Word) {
 	}
 	defer func() { vm.depth-- }()
 
-	switch {
-	case w.prim != nil:
+	switch w.kind {
+	case kindPrim:
 		w.prim(vm)
-	case w.hasData:
+	case kindData:
 		vm.push(w.data)
 		if w.does != nil {
 			vm.run(w.does)
 		}
+	case kindConstant:
+		for _, v := range w.vals {
+			vm.push(v)
+		}
+	case kindValue:
+		vm.push(vm.cell(w.data))
 	default:
 		vm.run(w.code)
 	}
@@ -64,6 +71,9 @@ func (vm *VM) run(code []instr) {
 		switch in.op {
 		case opCall:
 			vm.exec(in.word)
+			ip++
+		case opCompile:
+			vm.compile(instr{op: opCall, word: in.word})
 			ip++
 		case opLit:
 			vm.push(in.val)
@@ -120,7 +130,7 @@ func (vm *VM) run(code []instr) {
 				vm.throw("DOES> without CREATE")
 			}
 			vm.lastDef.does = code[in.dest:]
-			vm.lastDef.hasData = true
+			vm.lastDef.kind = kindData
 			vm.loops = vm.loops[:loopBase]
 			return
 		case opExit:

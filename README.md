@@ -15,6 +15,9 @@ bin/forth                      # REPL
 bin/forth examples/sieve.fs    # run a program
 bin/forth -e '6 7 * . cr'      # evaluate text (repeatable)
 bin/forth -i examples/fib.fs   # run a program, then stay in the REPL
+
+bin/forth -e ': greet ." hi" cr ;' -save app.img   # save an image
+bin/forth -load app.img -e 'greet'                 # start from that image
 ```
 
 A session looks like this:
@@ -84,12 +87,14 @@ Useful methods on `*VM`:
   touch nothing.
 - `SetSourceLoader(fn)` — supply the text for `INCLUDED` and `INCLUDE`
   yourself; otherwise they read through the file system.
+- `SaveImage(w)` / `LoadImage(r)` — write the compiled dictionary and data
+  space to a stream and read it back into a fresh VM.
 
 A `*VM` is single threaded: give each goroutine its own.
 
 ## The dictionary
 
-Word names are case insensitive. `WORDS` lists all 220 of them.
+Word names are case insensitive. `WORDS` lists all 223 of them.
 
 - **Stack** `DUP ?DUP DROP SWAP OVER NIP TUCK ROT -ROT 2DUP 2DROP 2SWAP 2OVER
   DEPTH PICK ROLL`
@@ -115,11 +120,42 @@ Word names are case insensitive. `WORDS` lists all 220 of them.
   [CHAR] BL ( \`
 - **Files** `OPEN-FILE CREATE-FILE CLOSE-FILE DELETE-FILE RENAME-FILE READ-FILE
   READ-LINE WRITE-FILE WRITE-LINE FILE-SIZE FILE-POSITION REPOSITION-FILE
-  FLUSH-FILE R/O W/O R/W BIN FILE-ERROR`
-- **Other** `WORDS ABORT ABORT" BYE MS MS@ TIME&DATE`
+  FLUSH-FILE R/O W/O R/W BIN FILE-ERROR SAVE-IMAGE LOAD-IMAGE`
+- **Other** `WORDS ABORT ABORT" (ABORT") BYE MS MS@ TIME&DATE`
 
 Numbers are read in the current `BASE`, with the usual prefixes: `$ff` is
 hexadecimal, `#99` decimal, `%1010` binary and `'A'` is a character.
+
+## Images
+
+An image is a snapshot of everything a program added to the interpreter: the
+data space and every word defined on top of the standard dictionary. Compiling
+a large program once and starting from the image afterwards is much faster
+than re-reading the source, and it is a way to ship a Forth application as one
+file.
+
+```sh
+bin/forth -save sieve.img examples/sieve.fs   # compile once
+bin/forth -load sieve.img -e 'count-primes .' # start from the image
+bin/forth -load sieve.img                     # or explore it in the REPL
+```
+
+From Forth, `S" app.img" SAVE-IMAGE` and `S" app.img" LOAD-IMAGE` do the same
+through the file system; in Go they are `vm.SaveImage(w)` and
+`vm.LoadImage(r)`.
+
+What travels: colon definitions with their control flow and compiled strings,
+`CONSTANT`, `VARIABLE`, `VALUE`, `CREATE ... DOES>`, `2CONSTANT`, `2VARIABLE`,
+immediacy, execution tokens (so a compiled `[']` still points at the same
+word), the whole data space including `BASE`, and words that are shadowed by a
+later redefinition but still called by older definitions.
+
+What does not: the stacks, the input source, open files, and anything a Go
+embedder added as a primitive — an image refers to primitives by their place
+in the standard dictionary, and records a fingerprint of it. Loading an image
+into an interpreter whose standard dictionary differs is refused rather than
+silently misinterpreted, as is loading into a session that already has
+definitions of its own.
 
 ## How it works
 
